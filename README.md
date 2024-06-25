@@ -22,7 +22,33 @@ python readout.py ...
 to apply Algorithm 1 from our paper to every document in .... Outputs are stored in two dictionaries: `` and ``. 
 
 ## Loading Our Probes
-Checkpoints for each of the linear probes used in our paper are available at https://huggingface.co/sfeucht/footprints. To load a linear probe used in this paper, TODO
+Checkpoints for each of the linear probes used in our paper are available at https://huggingface.co/sfeucht/footprints. To load a linear probe used in this paper, run the following code snippet:
+
+```python
+import torch 
+import torch.nn as nn
+from huggingface_hub import hf_hub_download
+
+class LinearModel(nn.Module):
+    def __init__(self, input_size, output_size, bias=False):
+        super(LinearModel, self).__init__()
+        self.fc = nn.Linear(input_size, output_size, bias=bias)
+    def forward(self, x):
+        output = self.fc(x)
+        return output
+
+# example: llama-2-7b probe at layer 0, predicting 3 tokens ago
+# predicting the next token would be `layer0_tgtidx1.ckpt`
+checkpoint_path = hf_hub_download(
+    repo_id="sfeucht/footprints", 
+    filename="llama-2-7b/layer0_tgtidx-3.ckpt"
+)
+
+# model_size is 4096 for both models.
+# vocab_size is 32000 for Llama-2-7b and 128256 for Llama-3-8b
+probe = LinearModel(4096, 32000)
+probe.load_state_dict(torch.load(checkpoint_path, map_location=torch.device('cpu')))
+```
 
 ## Training Your Own Probes
 Code used in this paper for training and testing linear probes can be found in `./scripts`. We have provided the probes used for the paper above. However, if you would still like to train your own linear probe on e.g. layer 12 to predict the previous two tokens, run
