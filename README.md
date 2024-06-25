@@ -4,7 +4,7 @@ How do LLMs process multi-token words, common phrases, and named entities? We di
 <img src="https://github.com/sfeucht/footprints/assets/56804258/78d7d86b-81e7-4818-8521-0c05e05934f2" width="500" />
 
 ## Demo: Segmenting a Document
-To see the *erasure score* from our paper in action, check out our [demo](), which allows you to run our probes on any chunk of text to view the highest-scoring multi-token lexical items. This demo applies the same procedure that was used to segment the document below (and the examples in the paper appendix). 
+To see the *erasure score* from our paper in action, check out our [demo notebook](https://colab.research.google.com/drive/1TPWCX_1a3GWu4IaNfcmA1ULBvF5cwmKA?usp=sharing), which allows you to run our probes on any chunk of text to view the highest-scoring multi-token lexical items. This colab notebook implements the same procedure that was used to segment the document below, as well as the examples in the paper appendix.
 
 <img width="500" alt="Monk example from website" src="https://github.com/sfeucht/footprints/assets/56804258/5ba3c7dd-da0b-4b2b-9a91-be86bdb0afb6">
 
@@ -61,14 +61,14 @@ python test_probe.py --checkpoint ../checkpoints/Llama-2-7b-hf/.../final.ckpt --
 ```
 
 ## Datasets Used
-We use three datasets in this paper. 
+We use three datasets in this paper, which can all be found in `./data`. 
 
-- CounterFact:
-    - expanded1_text (rename) used for all of the CounterFact tests in the paper
-- Pile:
-    - train_tiny_1000.csv 'text' column used to train probes
-    - val_tiny_500.csv used to validate probe hparams
-    - test_tiny_500.csv used for overall Pile test results
-- Wikipedia:
-    - wikipedia_val_500.csv (rename) used for overall Wikipedia test results
-    - wikipedia_test_500 and wikipedia_train_1000.csv untouched, kept for posterity
+- CounterFact [(Meng et al., 2022)](https://rome.baulab.info/)
+    - `counterfact_expanded.csv` was used for all of the CounterFact tests in the paper, and includes rows in addition to the original CounterFact dataset.
+- Pile [(Gao et al., 2020)](https://pile.eleuther.ai/)
+    - `train_tiny_1000.csv` was used to train all of the probes. 
+    - `val_tiny_500.csv` was used to validate probe hyperparameters.
+    - `test_tiny_500.csv` was used for overall Pile test results.
+- Wikipedia [(Wikimedia Foundation, 2022)](https://huggingface.co/datasets/legacy-datasets/wikipedia)
+    - `wikipedia_test_500.csv` was used for overall Wikipedia test results.
+    - `wikipedia_val_500.csv` and `wikipedia_train_1000.csv` were not used in this work, but are included for completeness. 
