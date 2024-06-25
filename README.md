@@ -46,8 +46,8 @@ checkpoint_path = hf_hub_download(
 
 # model_size is 4096 for both models.
 # vocab_size is 32000 for Llama-2-7b and 128256 for Llama-3-8b
-probe = LinearModel(4096, 32000)
-probe.load_state_dict(torch.load(checkpoint_path, map_location=torch.device('cpu')))
+probe = LinearModel(4096, 32000).cuda()
+probe.load_state_dict(torch.load(checkpoint_path))
 ```
 
 ## Training Your Own Probes
