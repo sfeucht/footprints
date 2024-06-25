@@ -40,21 +40,15 @@ Returns:
 def train_epoch(epoch, probe, train_loader, criterion, optimizer, warmup_scheduler, accumulate, clip_threshold, batches_seen, device):
     probe.train()
 
-    for batch_idx, (hidden_states, target_embs, target_toks, _, _, _) in enumerate(train_loader):
+    for batch_idx, (hidden_states, target_toks, _, _, _) in enumerate(train_loader):
         hidden_states, target_toks = hidden_states.to(device), target_toks.to(device)
         assert(not torch.isnan(hidden_states).any() and not torch.isinf(hidden_states).any())
-
-        if target_embs is not None:
-            target_embs = target_embs.to(device)
-            assert(not torch.isnan(target_embs).any() and not torch.isinf(target_embs).any())
 
         # get probe predictions and convert to toks if needed 
         output = probe(hidden_states.float()).to(device)
         
-        output_toks = output
-        
-        # then calculate CELoss with the tokens 
-        loss = criterion(output_toks, target_toks, reduction="mean") # removed .float()
+        # then calculate loss with the target tokens 
+        loss = criterion(output, target_toks, reduction="mean") 
         loss.backward() 
         
         if batch_idx % accumulate == 0 and batch_idx > 0:
@@ -72,7 +66,7 @@ def train_epoch(epoch, probe, train_loader, criterion, optimizer, warmup_schedul
 
         # print training accuracy/loss every 10 epochs, and on the last epoch
         if batch_idx % max(accumulate, 10) == 0 or batch_idx == len(train_loader) - 1:
-            train_acc = acc(output_toks.cpu(), target_toks.cpu())
+            train_acc = acc(output.cpu(), target_toks.cpu())
             print('Train Epoch: {} [{}/{} ({:.0f}%)]\tTraining Acc:{:3.3f}%\tBatch Loss: {:.6f} ({} tokens)'.format(
                 epoch, batch_idx, len(train_loader), 100. * batch_idx / len(train_loader), 
                 train_acc.item(), loss, hidden_states.size()[0]))
@@ -99,17 +93,16 @@ def test(probe, test_loader, criterion, device, tokenizer, target_idx, return_re
     n_other = 0
     n_other_correct = 0
     with torch.no_grad():
-        # NOTE: NOW WORKS ONLY WITH NewDataset and NewCollate. doesn't have embs anymore.
         for (data, target_toks, curr_toks, doc_idxs, entity_mask) in tqdm(test_loader):
             if data is None:
                 continue 
             
-            output_toks = probe(data.to(device).float()).to(device)
+            output = probe(data.to(device).float()).to(device)
 
-            loss = criterion(output_toks, target_toks.to(device), reduction="mean")
+            loss = criterion(output, target_toks.to(device), reduction="mean")
             total_loss += loss.detach().item()
 
-            for i, v in enumerate(output_toks.cpu()):         
+            for i, v in enumerate(output.cpu()):         
                 doc_id = doc_idxs[i]
                 current_tok = _topktoks(curr_toks[i])
                 actual_tok = target_toks[i]
@@ -131,7 +124,6 @@ def test(probe, test_loader, criterion, device, tokenizer, target_idx, return_re
                 if entity_mask is not None: 
                     this_is_entity_ngram = bool(is_entity_ngram(i, entity_mask, target_idx=target_idx))
                     if this_is_entity_ngram:
-                        # print(tokenizer.decode(current_tok.tolist()), tokenizer.decode(actual_tok.tolist()))
                         n_entity_ngrams += 1
                         n_entity_ngrams_correct += int(is_correct)
                     else: # count up coarse "other" values. 
@@ -198,8 +190,8 @@ class DocDataset(Dataset):
     def __init__(self, model, tokenizer, layer_name, target_idx, dataset_csv, window_size, vocab_size, device, entities=None):
         self.model = model
         self.tokenizer = tokenizer
-        self.layer_name = layer_name # int: -1 is embedding, 0-27 for layers, 28 for logits right at the end
-        self.target_idx = target_idx # -1 is previous token, 0 is current. 
+        self.layer_name = layer_name # -1 is embedding, 0-31 for layers, 32 for logits right at the end
+        self.target_idx = target_idx # -1 is previous token, 0 is current, etc.
         self.dataset_csv = dataset_csv
         self.window_size = window_size
         self.vocab_size = vocab_size
@@ -209,13 +201,14 @@ class DocDataset(Dataset):
         if self.entities is not None:
             self.entities = [self.tokenize(e, bos=False) for e in self.entities]
     
-    # llama tokenizer already adds BOS token, clip to window size 
+    # llama tokenizer already adds BOS token
     def tokenize(self, text, bos=True):
         if bos:
             t = self.tokenizer(text)['input_ids']
         else:
             t = self.tokenizer(text)['input_ids'][1:]
         
+        # this makes sure that entity mask is also truncated to window size 
         if len(t) > self.window_size:
             return t[:self.window_size]
         else:
@@ -240,6 +233,8 @@ class DocDataset(Dataset):
     def __getitem__(self, index):
         doc = self.dataset_csv.iloc[index]
         doc_string = str(doc['text'])
+        
+        # need this for entity mask calculations
         tokens = torch.tensor(self.tokenize(doc_string))
 
         entity_mask = torch.zeros_like(tokens)
@@ -262,19 +257,18 @@ class DocCollate(object):
         self.device = device
         
     def __call__(self, batch):
-        # first, get all the hidden states by doing a giant Trace
+        # pad all the strings and save attention mask 
         strings = [s for (_, s, _, _) in batch]
+        tokenized = self.tokenizer(strings, return_tensors='pt', padding=True, truncation=True, max_length=self.window_size)
+        attention_mask = tokenized['attention_mask']
 
-        with self.model.trace(strings):
+        with self.model.trace(tokenized):
             if self.layer == -1:
                 states = self.model.model.embed_tokens.output.save()
             elif self.layer == 32:
                 states = self.model.model.norm.output.save()
             else:
                 states = self.model.model.layers[self.layer].output[0].save()
-
-        # get the mask for padding that was added by nnsight 
-        attention_mask = self.tokenizer(strings, return_tensors='pt', padding='longest')['attention_mask']
 
         # then loop through the entire thing to keep same logic for embs, tokens and doc_idxs 
         source_hss = []

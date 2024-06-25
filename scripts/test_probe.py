@@ -14,13 +14,8 @@ import spacy
 import torch.nn.functional as F
 from collections import Counter
 from torch.utils.data import DataLoader
-from transformers import AutoTokenizer
 from nnsight import LanguageModel
-from modules.training import LinearModel, test, weighted_mse
-from modules.state_data import NewDataset, NewCollate
-
-import lovely_tensors as lt 
-# lt.monkey_patch()
+from training import LinearModel, test, DocDataset, DocCollate
 
 torch.manual_seed(0)
 
@@ -46,6 +41,16 @@ def idx_to_zip(idx, toks):
 
 def datasetname(input):
     return input.split('/')[-1][:-4]
+
+# get nice string when saving wikipedia results
+def wikiextra(datasetname, spacy):
+    if "wikipedia" in datasetname:
+        if spacy:
+            return "_mte"
+        else:
+            return "_mtw"
+    else:
+        return ""
 
 # take in results dataframe and add column `train_freq` indicating frequency of that ngram in the training dataset. 
 # note: this only does the SKIP ngrams. so "the big tower" and "the small tower" are the same for tgtidx=-2.
@@ -127,55 +132,50 @@ def train_conditional_probs(train_df, train_name, tokenizer, model_name, vocab_s
 
 def main(args):
     device = torch.device(f"cuda:{args.cuda}" if torch.cuda.is_available() else "cpu")
+    
+    model = LanguageModel(args.model, device_map=device)
+    tokenizer = model.tokenizer 
+    tokenizer.add_special_tokens({'pad_token':'<s>'})
 
-    MODEL_NAME = args.model
-    VOCAB_SIZE = 32000
-    MODEL_SIZE = 4096
-    tokenizer = AutoTokenizer.from_pretrained(MODEL_NAME)
-    model = LanguageModel(MODEL_NAME, device_map='cuda')
+    VOCAB_SIZE = model.vocab_size
+    MODEL_SIZE = model.config.hidden_size
+    MODEL_NAME = args.model.split('/')[-1]
     
-    if MODEL_NAME == "meta-llama/Llama-2-7b-hf":
-        tokenizer.add_special_tokens({'pad_token': '[PAD]'})
+    # window size is actually 2048 but I choose 512 for brevity
+    WINDOW_SIZE = 512 
     
-    # from https://github.com/meta-llama/llama/blob/main/llama/model.py
-    # do not trust tokenizer.model_max_length
-    WINDOW_SIZE = 512 # 2048 actually
     for p in model.parameters():
         p.requires_grad = False
     
-    if args.predict_embs: 
-        probe = LinearModel(MODEL_SIZE, MODEL_SIZE).to(device)
-    else:
-        probe = LinearModel(MODEL_SIZE, VOCAB_SIZE).to(device)
+    probe = LinearModel(MODEL_SIZE, VOCAB_SIZE).to(device)
     probe.load_state_dict(torch.load(args.checkpoint))
 
-    # intuit target_idx and layer from the filename 
-    target_idx = args.target_idx 
-    if target_idx is None:
-        if "TGTIDX" in args.checkpoint:
-            s = re.search(r'TGTIDX-\d+|TGTIDX\d+', args.checkpoint).group()
-            target_idx = int(s[6:])
-        else:
-            raise Exception("Can't infer target index from checkpoint: " + args.checkpoint)
+    # intuit target_idx from the filename 
+    if "TGTIDX" in args.checkpoint:
+        s = re.search(r'TGTIDX-\d+|TGTIDX\d+', args.checkpoint).group()
+        target_idx = int(s[6:])
+    else:
+        raise Exception("Can't infer target index from checkpoint: " + args.checkpoint)
     
-    layer = args.layer 
-    if layer is None:
-        if "LAYER" in args.checkpoint:
-            s = re.search(r'LAYER-\d+|LAYER\d+', args.checkpoint).group()
-            layer = int(s[5:])
-        else:
-            raise Exception("Can't infer layer from checkpoint: " + args.checkpoint)
+    # intuit layer from the filename 
+    if "LAYER" in args.checkpoint:
+        s = re.search(r'LAYER-\d+|LAYER\d+', args.checkpoint).group()
+        layer = int(s[5:])
+    else:
+        raise Exception("Can't infer layer from checkpoint: " + args.checkpoint)
     
-    random_data = args.test_data == "RANDOM"
-    collate_fn = NewCollate(layer, target_idx, tokenizer, model, WINDOW_SIZE, args.residuals, random=random_data)
-    if random_data:
-        test_data = None
-    else: 
-        test_data = pd.read_csv(args.test_data)
+    collate_fn = DocCollate(layer, target_idx, tokenizer, model, WINDOW_SIZE, device)
+
+    test_data = pd.read_csv(args.test_data)
     
-    if args.test_data == "../data/expansion1_text.csv":
-        test_data = test_data.loc[test_data['llama-2-7b_correct']]
-        print(f"pruned down to {len(test_data)}")
+    if args.test_data == "../data/counterfact_expandeds.csv":
+        corr_str = {
+            'Llama-2-7b-hf' : 'llama-2-7b',
+            'Meta-Llama-3-8B' : 'llama-3-8b'
+        }[MODEL_NAME]
+        
+        test_data = test_data.loc[test_data[f'{corr_str}_correct']]
+        print(f"pruned down to only correct CounterFact answers, {len(test_data)}")
     
     # pass in subjects from counterfact dataset as entities 
     which_entity = "subject"
@@ -185,7 +185,7 @@ def main(args):
             entities = list(test_data[which_entity])
     
     if 'wikipedia' in args.test_data:
-        if args.spacy:
+        if args.wiki_spacy:
             nlp = spacy.load("en_core_web_sm")
             entities = []
             for d in test_data['text']:
@@ -208,68 +208,54 @@ def main(args):
             print(multi_tok[:10])
             entities = list(set(multi_tok))
     
-    test_dataset = NewDataset(model, tokenizer, layer, target_idx, test_data, WINDOW_SIZE, VOCAB_SIZE, device, entities=entities, rand_size=500) # 500 * 10 toks per sequence, 5,000 val
-    test_loader = DataLoader(dataset=test_dataset, batch_size=1, collate_fn=collate_fn, drop_last=True, pin_memory=False)
+    test_dataset = DocDataset(model, tokenizer, layer, target_idx, test_data, WINDOW_SIZE, VOCAB_SIZE, device, entities=entities)
+    test_loader = DataLoader(dataset=test_dataset, batch_size=1, collate_fn=collate_fn)
     
-    k = 5
     criterion = {
-        "weighted_mse" : weighted_mse,
         "ce" : F.cross_entropy,
         "mse" : F.mse_loss
     }[args.criterion]
     
     test_loss, test_acc, test_topk_acc, test_entity_ng_acc, test_other_acc, test_results = test(probe, test_loader, 
-        criterion, device, model, tokenizer, None, args.predict_embs, target_idx, q_model=None, return_results=True, k=k)
-    
-    def wikiextra(test_data, spacy):
-        if "wikipedia" in test_data:
-            if spacy:
-                return "_mte"
-            else:
-                return "_mtw"
-        else:
-            return ""
+        criterion, device, tokenizer, target_idx, return_results=True)
 
     model_folder = args.checkpoint.split('/')[2] # hf-llama-2
     run_name = args.checkpoint.split('/')[-2]
     log_dir = f"../logs/{model_folder}/{run_name}/"
-    out_csv = f"{datasetname(args.test_data)}_results{wikiextra(args.test_data, args.spacy)}.csv" # assume we're testing on the same layer
-    if args.model == 'epfl-llm/meditron-7b':
-        out_csv = "meditron_" + out_csv
+    out_csv = f"{datasetname(args.test_data)}_results{wikiextra(args.test_data, args.wiki_spacy)}.csv" 
         
     os.makedirs(log_dir, exist_ok=True)
     print(log_dir + out_csv)
     test_results.to_csv(log_dir + out_csv, quoting=csv.QUOTE_ALL, encoding='utf-8')
     print('Test Loss: {:10.4f}  Accuracy: {:3.4f}%\n'.format(test_loss, test_acc))
-    print('Test Top-{} Accuracy: {:3.4f}%\n'.format(k, test_topk_acc))
+    print('Test Top-5 Accuracy: {:3.4f}%\n'.format(test_topk_acc))
     print('Test Accuracy for Entity Ngrams: {:3.4f}% (Other: {:3.4f})\n'.format(test_entity_ng_acc, test_other_acc))
 
     return test_loss, test_acc, test_entity_ng_acc, test_other_acc
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
-
-    # information about what you want to test on
-    parser.add_argument('--train_data', type=str, default='../data/train_tiny_1000.csv')
-    # parser.add_argument('--test_data', type=str, default='../data/test_tiny_500.csv')
-    # parser.add_argument('--test_data', type=str, default='../data/expansion1_text.csv')
-    # parser.add_argument('--test_data', type=str, default='RANDOM')
-    parser.add_argument('--test_data', type=str, default="../data/wikipedia_test_500.csv")
-    parser.add_argument('--layer', type=int, default=None, required=False,
-                        help='which layer you want to TEST on. GPT-J: from -1..28 where -1 is embedding layer and 28 is output. Llama: from -1...32 where -1 is embedding layer and 32 is output.')
-    parser.add_argument('--target_idx', type=int, default=None, required=False, # help msg uses NEW numbering
-                        help='which token you want to TEST predicting (e.g. 0 for current token, -1 for prev)')
-    parser.add_argument('--criterion', type=str, choices=['weighted_mse', 'mse', 'ce'], default='ce')
-
-    # information we need to load probe properly 
+    
+    # defaults 
+    parser.add_argument('--criterion', type=str, choices=['mse', 'ce'], default='ce')
     parser.add_argument('--cuda', type=int, default=0)
     parser.add_argument('--num_workers', type=int, default=12)
-    parser.add_argument('--model', type=str, choices=['meta-llama/Llama-2-7b-hf', 'epfl-llm/meditron-7b'], required=True)
-    parser.add_argument('--checkpoint', type=str, required=True)
-    parser.add_argument('--predict_embs', action='store_true')
-    parser.add_argument('--residuals', action='store_true')
-    parser.add_argument('--spacy', action='store_true')
-    parser.set_defaults(predict_embs=False, residuals=False, spacy=False)
+
+    # what dataset to test on 
+    parser.add_argument('--test_data', type=str, 
+                        choices=[
+                            '../data/counterfact_expanded.csv', 
+                            '../data/test_tiny_500.csv', 
+                            '../data/wikipedia_test_500.csv'
+                        ], default="../data/test_tiny_500.csv")
+    
+    # for wikipedia dataset, do MTE if True, otherwise do MTW
+    parser.add_argument('--wiki_spacy', action='store_true')
+    parser.set_defaults(wiki_spacy=False)
+    
+    # specify probe checkpoint and model. tests the same layer and target_idx. 
+    parser.add_argument('--model', type=str, choices=['meta-llama/Llama-2-7b-hf', 'meta-llama/Meta-Llama-3-8B'], default='meta-llama/Llama-2-7b-hf')
+    parser.add_argument('--checkpoint', type=str, required=True, help="e.g. ../checkpoints/Llama-2-7b-hf/llamaLAYER12-TGTIDX-2.../final.ckpt") 
     
     args = parser.parse_args()
     main(args)

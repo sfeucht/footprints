@@ -1,5 +1,6 @@
 '''
-TODO brush up and comment
+TODO load in the llama-2 and llama-3 probes from huggingface(?)
+figure out if this is feasible vs. get_probes approach 
 '''
 import os
 import re 
@@ -379,10 +380,10 @@ if __name__ == "__main__":
     parser.add_argument("--dataset", default="../data/test_tiny_500.csv")
     parser.add_argument('--layer_start', type=int, default=1)
     parser.add_argument('--layer_end', type=int, default=9)
-    parser.add_argument('--n_examples', type=int, default=-1)
+    parser.add_argument('--n_examples', type=int, default=-1, help="-1 to use the whole dataset")
     
-    parser.add_argument('--model', default='meta-llama/Llama-2-7b-hf')
-    parser.add_argument('--sweep', default='../sweeps/finalsweep.csv')
+    parser.add_argument('--model', default='meta-llama/Llama-2-7b-hf', 
+                        choices=['meta-llama/Meta-Llama-3-8B', 'meta-llama/Llama-2-7b-hf'])
     
     args = parser.parse_args()
     

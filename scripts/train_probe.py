@@ -42,10 +42,10 @@ def main(args):
     MODEL_SIZE = model.config.hidden_size
     MODEL_NAME = args.model.split('/')[-1]
 
-    # max_seq_len from below sources 
+    # max_seq_len from below sources is 2048, but changing to 512 for memory/speed 
     # https://github.com/meta-llama/llama/blob/main/llama/model.py#L31
     # https://github.com/meta-llama/llama3/blob/bf8d18cd087a4a0b3f61075b7de0b86cf6c70697/llama/model.py#L32
-    WINDOW_SIZE = 2048 
+    WINDOW_SIZE = 512 
 
     for param in model.parameters():
         param.requires_grad = False 
@@ -84,11 +84,10 @@ def main(args):
     linear_probe = LinearModel(MODEL_SIZE, VOCAB_SIZE).to(device)
     wandb.watch(linear_probe)
 
-    # layer, target_idx, tokenizer, model, window_size, device)
     collate_fn = DocCollate(args.layer, args.target_idx, tokenizer, model, WINDOW_SIZE, device)
 
     train_loader = DataLoader(dataset=train_dataset, batch_size=args.probe_bsz, collate_fn=collate_fn, 
-        drop_last=True, pin_memory=False, shuffle=True, generator=torch.Generator('cpu')) 
+        drop_last=True, pin_memory=False, shuffle=True)
     val_loader = DataLoader(dataset=val_dataset, batch_size=args.probe_bsz, collate_fn=collate_fn, 
         drop_last=True, pin_memory=False)
     test_loader = DataLoader(dataset=test_dataset, batch_size=args.probe_bsz, collate_fn=collate_fn, 
@@ -133,7 +132,7 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser()
 
     # training info for linear probe
-    parser.add_argument('--probe_bsz', type=int, default=4)
+    parser.add_argument('--probe_bsz', type=int, default=1)
     parser.add_argument('--probe_lr', type=float, default=0.1)
     parser.add_argument('--probe_wd', type=float, default=0.001)
     parser.add_argument('--probe_epochs', type=int, default=8)

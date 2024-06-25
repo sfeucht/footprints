@@ -1,10 +1,10 @@
 '''
 Small helper functions used for training and testing.
 '''
+import torch
 
-
-def acc(ponehots, target_toks):
-    return 100 * (sum(_topktoks(ponehots).cpu() == _topktoks(target_toks)) / len(target_toks))
+def acc(pred_dist, target_toks):
+    return 100 * (sum(pred_dist.argmax(dim=-1) == target_toks) / len(target_toks))
 
 def _topktoks(logits, k=1):
     _, top_tokens = logits.topk(k=k, dim=-1)
