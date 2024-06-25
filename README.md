@@ -3,17 +3,28 @@ How do LLMs process multi-token words, common phrases, and named entities? We di
 
 <img src="https://github.com/sfeucht/footprints/assets/56804258/78d7d86b-81e7-4818-8521-0c05e05934f2" width="500" />
 
-## Setup
-Create a virtual environment with Python 3.8.10 and install the required packages.
+## Demo: Segmenting a Document
+To see the *erasure score* from our paper in action, check out our [demo](), which allows you to run our probes on any chunk of text to view the highest-scoring multi-token lexical items. This demo applies the same procedure that was used to segment the document below (and the examples in the paper appendix). 
+
+<img width="500" alt="Monk example from website" src="https://github.com/sfeucht/footprints/assets/56804258/5ba3c7dd-da0b-4b2b-9a91-be86bdb0afb6">
+
+## "Reading Out" Vocabulary Examples
+To run this algorithm for a large number of documents in order to inspect the top-scoring token sequences, first clone this repository and create a new virtual environment using Python 3.8.10:
 ```
-python -m venv env
+python3 -m venv env
+source env/bin/activate
 pip install -r requirements.txt
 ```
+Then, you can run 
+```
+python readout.py ... 
+```
+to apply Algorithm 1 from our paper to every document in .... Outputs are stored in two dictionaries: `` and ``. 
 
-## Demo
-Checkpoints for each of the linear probes used in our paper are available at https://huggingface.co/sfeucht/footprints. (todo explain)
+## Loading Our Probes
+Checkpoints for each of the linear probes used in our paper are available at https://huggingface.co/sfeucht/footprints. To load a linear probe used in this paper, TODO
 
-## Code
+## Training Your Own Probes
 Code used in this paper for training and testing linear probes can be found in `./scripts`. We have provided the probes used for the paper above. However, if you would still like to train your own linear probe on e.g. layer 12 to predict the previous two tokens, run
 ```
 python train_probe.py --layer 12 --target_idx -2 
@@ -23,7 +34,7 @@ and a linear model will be trained on Llama-2-7b by default and stored as a chec
 python test_probe.py --checkpoint ../checkpoints/Llama-2-7b-hf/.../final.ckpt --test_data counterfact_expanded.csv
 ```
 
-## Data
+## Datasets Used
 We use three datasets in this paper. 
 
 - CounterFact:
