@@ -4,7 +4,7 @@ How do LLMs process multi-token words, common phrases, and named entities? We di
 <img src="https://github.com/sfeucht/footprints/assets/56804258/78d7d86b-81e7-4818-8521-0c05e05934f2" width="500" />
 
 ## Demo: Segmenting a Document
-To see the *erasure score* from our paper in action, check out our [demo notebook](https://colab.research.google.com/drive/1TPWCX_1a3GWu4IaNfcmA1ULBvF5cwmKA?usp=sharing), which allows you to run our probes on any chunk of text to view the highest-scoring multi-token lexical items. This colab notebook implements the same procedure that was used to segment the document below, as well as the examples in the paper appendix.
+To see the *erasure score* from our paper in action, check out our [demo](), which allows you to run our probes on any chunk of text to view the highest-scoring multi-token lexical items. This colab notebook implements the same procedure that was used to segment the document below, as well as the examples in the paper appendix.
 
 <img width="500" alt="Monk example from website" src="https://github.com/sfeucht/footprints/assets/56804258/5ba3c7dd-da0b-4b2b-9a91-be86bdb0afb6">
 
@@ -19,7 +19,7 @@ Then, you can run e.g.
 ```
 python readout.py --n_examples 2 --model meta-llama/Meta-Llama-3-8B --dataset ../data/wikipedia_test_500.csv
 ```
-to replicate Appendix Table 6. We also provide a script version of the above demo as `segments.py`, which allows you to input a document as a txt file and view the resulting multi-token sequences. 
+to replicate Appendix Table 6. We also provide a script version of the above demo as `segments.py`, which allows you to input a document as a txt file and view the resulting multi-token sequences (optionally in html format with the `--output_html` flag). 
 
 ## Loading Our Probes
 Checkpoints for each of the linear probes used in our paper are available at https://huggingface.co/sfeucht/footprints. To load a linear probe used in this paper, run the following code snippet:
