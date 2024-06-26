@@ -15,11 +15,11 @@ python3 -m venv env
 source env/bin/activate
 pip install -r requirements.txt
 ```
-Then, you can run 
+Then, you can run e.g.
 ```
-python readout.py ... 
+python readout.py --n_examples 2 --model meta-llama/Meta-Llama-3-8B --dataset ../data/wikipedia_test_500.csv
 ```
-to apply Algorithm 1 from our paper to every document in .... Outputs are stored in two dictionaries: `` and ``. 
+to replicate Appendix Table 6. We also provide a script version of the above demo as `segments.py`, which allows you to input a document as a txt file and view the resulting multi-token sequences. 
 
 ## Loading Our Probes
 Checkpoints for each of the linear probes used in our paper are available at https://huggingface.co/sfeucht/footprints. To load a linear probe used in this paper, run the following code snippet:
