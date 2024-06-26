@@ -1,7 +1,8 @@
 '''
-TODO clean up this file 
-Running this file will train a linear probe to predict the current (0) or 
-previous (-1) token at a specific layer: tok_embeddings, layer.[0-31], output. 
+Train a new linear probe to predict a token offset (target_idx) at a specific 
+layer. For example, you can train a probe with target_idx=-2 and layer=12 to 
+take hidden states at layer 12 (the 13th layer) and predict what was two tokens
+before that hidden state.
 '''
 import os
 import csv

@@ -1,6 +1,5 @@
 '''
-TODO clean up this file 
-Loads a probe checkpoint and gets test results on it, including training ngram frequency information.
+Load a probe checkpoint from `train_probe.py and get test results on it for another dataset.
 '''
 import os
 import csv

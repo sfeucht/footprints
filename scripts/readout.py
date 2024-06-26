@@ -1,6 +1,6 @@
 '''
-TODO load in the llama-2 and llama-3 probes from huggingface(?)
-figure out if this is feasible vs. get_probes approach 
+Given a dataset csv with the column 'text' and a choice between Llama-2-7b and
+Llama-3-8b, "read out" the vocabulary of that model based on the given datset.
 '''
 import os
 import re 
@@ -14,8 +14,9 @@ import pandas as pd
 
 from collections import Counter
 from transformers import AutoTokenizer
-from modules.training import LinearModel
+from training import LinearModel
 from nnsight import LanguageModel
+from huggingface_hub import hf_hub_download
 
 tgt_idxs = ['i0', 'in1', 'in2', 'in3']
 
@@ -43,104 +44,106 @@ def load_scores(model, dataset):
     
     return pd.concat(dfs).drop(columns=["Unnamed: 0"])
 
+def get_probe(layer, target_idx, model):
+    # example: llama-2-7b probe at layer 0, predicting 3 tokens ago
+    # predicting the next token would be `layer0_tgtidx1.ckpt`
+    checkpoint_path = hf_hub_download(
+        repo_id="sfeucht/footprints",
+        filename=f"{model}/layer{layer}_tgtidx{target_idx}.ckpt"
+    )
 
-# ## The Recipe
-# Okay boys, I think I found the recipe. I think that including -3 information is weird and janky but 
-# including -1 and -2 information for all tokens as well as i=0 information for the last token really clinches this. 
-def psi(doc_unis, i, j):
-    sn = doc_unis.iloc[i:j+1]
-    
+    # model_size is 4096 for both models.
+    # vocab_size is 32000 for Llama-2-7b and 128256 for Llama-3-8b
+    model_size = 4096
+    if model == 'llama-2-7b':
+        vocab_size = 32000
+    elif model == 'llama-3-8b':
+        vocab_size = 128256
+
+    probe = LinearModel(model_size, vocab_size).cuda()
+    probe.load_state_dict(torch.load(checkpoint_path))
+
+    return probe
+
+
+'''
+Implementation of "Erasure Score" 
+'''
+def psi(doc_info, i, j):
+    sn = doc_info.iloc[i:j+1]
+
     idx_to_key = {
         0 : 'tok-1_i0_probdelta',
         -1 : 'tok-1_in1_probdelta',
         -2 : 'tok-1_in2_probdelta',
         -3 : 'tok-1_in3_probdelta'
     }
-    
-    # we're doing 0 indexing for t, so this is different from paper 
-    # in the paper we did start-end, so we have to flip all these to end-start, add - in front of probdelta
+
+    # we're doing 0 indexing for t, so this is different from the paper
+    # in the paper we did start-end, so we have to flip all these to end-start and add - in front of probdelta
     # also, we have to do (t + idx < i) since we're using absolute idxs
-    
-    # OPTION removing i0 information 
-    # ideal = 0.0001
-    # score = 0
+
     ideal = 1
-    score = -sn.iloc[-1]['tok-1_i0_probdelta'] 
+    score = -sn.iloc[-1]['tok-1_i0_probdelta']
     for t, row in sn.iterrows():
         # for idx in range(-3, 0): # OPTION include -3 information
-        for idx in range(-2, 0): 
+        for idx in range(-2, 0):
             # 0 - 3 means it's outside bounds
             # 1 - 1 is inside bounds (predicting t=0)
             # 3 - 2 is inside bounds (predicting t=1 from t=3)
             sign = -1 if (t + idx < i) else 1
-            
-            try: 
+
+            try:
                 sc = -row[idx_to_key[idx]]
                 if not np.isnan(sc):
-                    score += sign * sc 
+                    score += sign * sc
                     ideal += 1
             except KeyError:
-                pass 
-    
-    return score / ideal  
+                pass
 
-def partition_doc(doc_scores, uni_concepts=True, length=50):
-    # create and initialize the matrix 
-    # doc = llama_scores.loc[llama_scores['doc_idx']==doc_idx]
-    doc_unis = doc_scores.loc[doc_scores['n']==1].iloc[:length]
-    n = len(doc_unis) 
+    return score / ideal 
+
+'''
+Given doc_info, apply Algorithm 1 to segment this particular document into non-
+overlapping high-scoring chunks. Allow for unigram segments to fill in the gaps.
+'''
+def partition_doc(doc_info):
+    # create and initialize the matrix
+    n = len(doc_info)
 
     # implement as np array
     dp = np.ones((n, n))
     dp = dp * -1
 
-    # fill out the matrix 
+    # fill out the matrix
     for i in range(n):
         for j in range(n):
             if i <= j:
                 if True: # j - i < 6:
-                    dp[i][j] = psi(doc_unis, i, j)
-    
-    # look at heatmap of all the scores 
-    # words = [w for w in doc_unis['decoded']]
-    # sns.heatmap(dp, xticklabels=words, yticklabels=words)#, annot=True, fmt=".1g")
-    # plt.show()
+                    dp[i][j] = psi(doc_info, i, j)
 
-    # get the top scores in order 
+    # get the top scores in order
     x, y = np.unravel_index(np.argsort(-dp.flatten()), dp.shape)
     coords = np.array(list(zip(x, y)))
 
-    # go through all the top ngrams and add them to list, marking which ones become invalid as we go. 
-    invalid = np.zeros_like(dp) + np.tril(np.ones_like(dp)) - np.eye(len(dp))
+    # go through all the top ngrams and add them to list, marking which ones become invalid as we go.
     segments = []
-    for x, y in coords:
-        condition = x <= y if uni_concepts else x < y
-        if condition: 
-            val = dp[x, y]
-            
-            if not invalid[x, y]:
-                segments.append(((x,y), val))
+    for p, q in coords:
+        if p <= q:
+            val = dp[p, q]
 
-                # strike out the cells that are now invalid 
-                for i_x in range(invalid.shape[0]):
-                    for i_y in range(invalid.shape[1]):
-                        if i_y >= x and i_x <= y:
-                            invalid[i_x, i_y] = 1
-        
-        if np.all(invalid):
-            print("done, all invalid now")
-            break 
-    
-    # if we were skipping unigrams above, we have to use them to fill in gaps 
-    if not uni_concepts:
-        for x, y in coords:
-            if x == y:
-                if not invalid[x, y]:
-                    segments.append(((x,y), val))
-                    invalid[x, y] = 1
-        assert np.all(invalid)
-    
-    # validate that the segments fully cover doc 
+            valid = True
+            for (x, y), _ in segments:
+              if x > q or y < p:
+                pass
+              else:
+                valid = False
+                break
+
+            if valid:
+                segments.append(((p,q), val))
+
+    # validate that the segments fully cover doc
     all_ranges = []
     for (x, y), val in segments:
         r = range(x, y+1)
@@ -165,161 +168,124 @@ def read_out_entries(segments, tokens, filter_unis=True):
             
     return entries, vals
 
-def get_tok_metrics(toks, i, start_probes, end_probes, start_states, end_states):
+'''
+Run all the possible probes for a specific token 
+'''
+def get_tok_metrics(toks, i, start_probes, end_probes, start_states, end_states, tgt_idxs):
     corrstart, corrend, probdelta = {}, {}, {}
-    
-    # run each pair of probes on hidden states 
+
+    # run each pair of probes on hidden states
     for start_probe, end_probe, s in zip(start_probes, end_probes, tgt_idxs):
         label = {
             'i0' : toks[i],
-            'in1' : toks[i - 1] if i >= 1 else None, 
+            'in1' : toks[i - 1] if i >= 1 else None,
             'in2' : toks[i - 2] if i >= 2 else None,
             'in3' : toks[i - 3] if i >= 3 else None
         }[s]
-        
+
         if label is not None:
             start_logits = start_probe(start_states[i]).squeeze().detach().cpu()
             end_logits = end_probe(end_states[i]).squeeze().detach().cpu()
-            
+
             corrstart[s] = start_logits.argmax() == label
             corrend[s] = end_logits.argmax() == label
-
             probdelta[s] = end_logits.softmax(dim=-1)[label].item() - start_logits.softmax(dim=-1)[label].item()
 
             del start_logits, end_logits
 
-    return corrstart, corrend, probdelta 
+    return corrstart, corrend, probdelta
 
 
-# adapted from algodump.py. just get all the unigram information not ngrams.
-# don't run it if it already exists 
-def algodump(tokens, start_probes, end_probes, start_states, end_states, tokenizer):
-    # per token: tok-1, decoded, tok-1_i0_iscorr, tok-1_i0_rankdelta, tok-1_i0_logitdelta, tok-1_i0_probdelta
-    rows = []
-    for i, ug_tok in enumerate(tokens):
-        row = {'decoded' : tokenizer.decode(ug_tok), 'n' : 1}
-        
-        # for each token in the ng run all the relevant probes 
-        corrstart, corrend, probdelta = \
-            get_tok_metrics(tokens, i, start_probes, end_probes, start_states, end_states)
-        
-        # save this token
-        row[f'tok-1'] = ug_tok
-        
-        # save i0, in1, in2, in3 for token-1 in the unigram
-        for s in tgt_idxs:
-            if s in corrstart.keys():
-                row[f'tok-1_{s}_corrstart'] = corrstart[s].item()
-                row[f'tok-1_{s}_corrend'] = corrend[s].item()
-                row[f'tok-1_{s}_probdelta'] = probdelta[s]
-        
-        rows.append(row)
+'''
+given a bunch of tokens and the states for the tokens at a layer, create a dataframe
+with every possible probdelta (for different target indices) for each token.
+'''
+def get_doc_info(tokens, model, layer_start, layer_end, start_probes, end_probes, tokenizer):
+  tgt_idxs = ['i0', 'in1', 'in2', 'in3']
 
-    del start_states, end_states
-    torch.cuda.empty_cache()
+  # get hidden states for tokens
+  with torch.no_grad():
+    with model.trace(tokens):
+        ss = model.model.layers[layer_start].output[0].squeeze().save()
+        es = model.model.layers[layer_end].output[0].squeeze().save()
 
-    doc_df = pd.DataFrame(rows)
-    return doc_df
+    start_states = ss.detach()
+    end_states = es.detach()
+    del ss, es
+
+  # per token: tok-1, decoded, tok-1_i0_iscorr, tok-1_i0_rankdelta, tok-1_i0_logitdelta, tok-1_i0_probdelta
+  rows = []
+  for i, ug_tok in enumerate(tokens):
+      row = {'decoded' : tokenizer.decode(ug_tok), 'n' : 1}
+
+      # for each token in the ng run all the relevant probes
+      corrstart, corrend, probdelta = \
+          get_tok_metrics(tokens, i, start_probes, end_probes, start_states, end_states, tgt_idxs)
+
+      # save this token
+      row[f'tok-1'] = ug_tok
+
+      # save i0, in1, in2, in3 for token-1 in the unigram
+      for s in tgt_idxs:
+          if s in corrstart.keys():
+              row[f'tok-1_{s}_corrstart'] = corrstart[s].item()
+              row[f'tok-1_{s}_corrend'] = corrend[s].item()
+              row[f'tok-1_{s}_probdelta'] = probdelta[s]
+
+      rows.append(row)
+
+  del start_states, end_states
+  torch.cuda.empty_cache()
+
+  return pd.DataFrame(rows)
 
 def main(args):
-    WINDOW_SIZE = 256
-    MODEL_NAME = args.model.split('/')[-1]
-    VOCAB_SIZE = {
-        'Llama-2-7b-hf' : 32000,
-        'Meta-Llama-3-8B' : 128256
-    }[MODEL_NAME]
-    MODEL_SIZE = {
-        'vigogne-2-7b-instruct' : 4096,
-        'meditron-7b' : 4096,
-        'hf-llama-2' : 4096,
-        'Llama-2-7b-hf' : 4096,
-        'Llama-2-13b-hf' : 5120,
-        'Llama-2-70b-hf' : 8192,
-        'Meta-Llama-3-8B' : 4096
-    }[MODEL_NAME]
-    
-    tokenizer = AutoTokenizer.from_pretrained(args.model)    
     model = LanguageModel(args.model, device_map='cuda')
-
+    tokenizer = AutoTokenizer.from_pretrained(args.model)    
+    
+    MODEL_NAME = args.model.split('/')[-1]
+    WINDOW_SIZE = 256
+    
     # dataset we want to index 
     dataset = pd.read_csv(args.dataset)
     
-    dump_dir = f"../logs/{MODEL_NAME}/candidates/{datasetname(args.dataset)}_layer{args.layer_start}_{args.layer_end}/"
+    dump_dir = f"../logs/{MODEL_NAME}/readout/{datasetname(args.dataset)}_layer{args.layer_start}_{args.layer_end}/"
     os.makedirs(dump_dir, exist_ok=True)
     
-    if MODEL_NAME == "Llama-2-7b-hf":
-        probes_csv = pd.read_csv(args.sweep)
+    hf_string = {
+        'Llama-2-7b-hf' : 'llama-2-7b',
+        'Meta-Llama-3-8B' : 'llama-3-8b'
+    }[MODEL_NAME]
     
-        def get_probe(layer, target_idx):
-            df = probes_csv.loc[(probes_csv['layer'] == layer) & (probes_csv['target_idx'] == target_idx)]
-            assert(len(df)==1)
-            
-            ckpt = df.iloc[0]['Name']
-            dir = "../checkpoints/hf-llama-2/{}/final.ckpt"
-            
-            probe = LinearModel(MODEL_SIZE, VOCAB_SIZE, bias=False).to('cuda')
-            probe.load_state_dict(torch.load(dir.format(ckpt)))
-            
-            return probe    
-    
-    elif MODEL_NAME == "Meta-Llama-3-8B":
-        def get_probe(layer, target_idx):
-            search = f"Meta-Llama-3-8BLAYER{layer}-TGTIDX{target_idx}-train_tiny_1000-bsz4-lr0.10000-epochs16"
-            # dir = "/data/david_atkinson/lexicon/checkpoints/Meta-Llama-3-8B/meta-llama/"
-            dir = "../checkpoints/Meta-Llama-3-8B/meta-llama/"
-            
-            for fname in os.listdir(dir):
-                if search in fname:
-                    dir += fname + '/final.ckpt'
-            
-            print(dir)
-            probe = LinearModel(MODEL_SIZE, VOCAB_SIZE, bias=False).to('cuda')
-            probe.load_state_dict(torch.load(dir))
-            return probe 
-
-    else:
-        raise Exception(f"don't have probes for {MODEL_NAME}") 
-
     # load in the probes at layer_start and layer_end 
     start_probes, end_probes = [], []
-    start_probes.append(get_probe(args.layer_start, 0))
-    end_probes.append(get_probe(args.layer_end, 0))
+    start_probes.append(get_probe(args.layer_start, 0, hf_string))
+    end_probes.append(get_probe(args.layer_end, 0, hf_string))
 
-    start_probes.append(get_probe(args.layer_start, -1))
-    end_probes.append(get_probe(args.layer_end, -1))
+    start_probes.append(get_probe(args.layer_start, -1, hf_string))
+    end_probes.append(get_probe(args.layer_end, -1, hf_string))
 
-    start_probes.append(get_probe(args.layer_start, -2))
-    end_probes.append(get_probe(args.layer_end, -2))
+    start_probes.append(get_probe(args.layer_start, -2, hf_string))
+    end_probes.append(get_probe(args.layer_end, -2, hf_string))
     
     ctr = 0
     all_ctr = Counter()
     sum_scores = {}
-    col = 'text' if 'wikipedia' in args.dataset else 'decoded_prefix'
     tik = time.time()
-    for doc_idx, doc in enumerate(dataset[col]):
-        # get tokens and states
+    for doc_idx, doc in enumerate(dataset['text']):
         tokens = tokenizer(doc)['input_ids'][:WINDOW_SIZE]
-
-        with torch.no_grad():
-            with model.trace(tokens):
-                ss = model.model.layers[args.layer_start].output[0].squeeze().save()
-                es = model.model.layers[args.layer_end].output[0].squeeze().save()
-
-            start_states = ss.detach()
-            end_states = es.detach()
-            del ss, es 
         
         # get probe probability information for this doc_idx
-        fname = f"algodump_{doc_idx}.csv"
+        fname = f"docinfo_{doc_idx}.csv"
         try: 
             doc_df = pd.read_csv(dump_dir + fname)
             print(f"loaded {dump_dir + fname}")
         except FileNotFoundError:
-            doc_df = algodump(tokens, start_probes, end_probes, start_states, end_states, tokenizer)
+            doc_df = get_doc_info(tokens, model, args.layer_start, args.layer_end, start_probes, end_probes, tokenizer)
             doc_df.to_csv(dump_dir + fname, quoting=csv.QUOTE_ALL)
             print(f"saved {dump_dir + fname}, {len(tokens)} tokens in {datasetname(args.dataset)}")
         
-        # THE RECIPE: use uni_concepts=True to partition document
+        # segment doc with partition_doc 
         picklename = f"segments_{doc_idx}.pkl"
         try:
             with open(dump_dir + picklename, 'rb') as f:
@@ -328,13 +294,13 @@ def main(args):
             
         except FileNotFoundError:
             print(f"partitioning doc {doc_idx}...")
-            segments = partition_doc(doc_df, uni_concepts=True, length=len(tokens))
+            segments = partition_doc(doc_df)
             
             with open(dump_dir + picklename, 'wb') as f:
                 pickle.dump(segments, f)
             print(f"saved segments to {dump_dir + picklename}")
         
-        # but filter out the unigrams when you're "reading things out"
+        # filter out the unigrams when you're "reading out" the vocabulary 
         entries, vals = read_out_entries(segments, tokens, filter_unis=True)
         decoded_entries = [tokenizer.decode(e) for e in entries]
         
@@ -373,6 +339,13 @@ def main(args):
         pickle.dump(avg_scores, f)
     print(f"saved averages at {dump_dir + avgs_fname}")
     
+    ctr = 0
+    print("\nTop 50 Vocabulary Entries")
+    for k, v in avg_scores.items():
+        print(repr(k), '\t', v)
+        ctr += 1
+        if ctr > 50:
+            break 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
