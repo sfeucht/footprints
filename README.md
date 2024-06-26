@@ -4,7 +4,7 @@ How do LLMs process multi-token words, common phrases, and named entities? We di
 <img src="https://github.com/sfeucht/footprints/assets/56804258/78d7d86b-81e7-4818-8521-0c05e05934f2" width="500" />
 
 ## Demo: Segmenting a Document
-To see the *erasure score* from our paper in action, check out our [demo](), which allows you to run our probes on any chunk of text to view the highest-scoring multi-token lexical items. This colab notebook implements the same procedure that was used to segment the document below, as well as the examples in the paper appendix.
+To see the *erasure score* from our paper in action, check out our [demo](), which allows you to run our probes on any chunk of text to view the highest-scoring multi-token lexical items. This demo implements the same procedure that was used to segment the document below, as well as the examples in the paper appendix.
 
 <img width="500" alt="Monk example from website" src="https://github.com/sfeucht/footprints/assets/56804258/5ba3c7dd-da0b-4b2b-9a91-be86bdb0afb6">
 
