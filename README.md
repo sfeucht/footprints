@@ -3,23 +3,44 @@ How do LLMs process multi-token words, common phrases, and named entities? We di
 
 <img src="https://github.com/sfeucht/footprints/assets/56804258/78d7d86b-81e7-4818-8521-0c05e05934f2" width="500" />
 
-## Demo: Segmenting a Document
-To see the *erasure score* from our paper in action, check out our [demo](), which allows you to run our probes on any chunk of text to view the highest-scoring multi-token lexical items. This demo implements the same procedure that was used to segment the document below, as well as the examples in the paper appendix.
-
-<img width="500" alt="Monk example from website" src="https://github.com/sfeucht/footprints/assets/56804258/5ba3c7dd-da0b-4b2b-9a91-be86bdb0afb6">
-
-## "Reading Out" Vocabulary Examples
-To run this algorithm for a large number of documents in order to inspect the top-scoring token sequences, first clone this repository and create a new virtual environment using Python 3.8.10:
+## Setup 
+To run our code, clone this repository and create a new virtual environment using Python 3.8.10:
 ```
 python3 -m venv env
 source env/bin/activate
 pip install -r requirements.txt
 ```
-Then, you can run e.g.
+
+## Segmenting a Document
+An implementation of Algorithm 1 in our paper is provided in `segment.py`. This script can be run like so:
 ```
-python readout.py --n_examples 2 --model meta-llama/Meta-Llama-3-8B --dataset ../data/wikipedia_test_500.csv
+python segment.py --document my_doc.txt --model meta-llama/Llama-2-7b-hf
 ```
-to replicate Appendix Table 6. We also provide a script version of the above demo as `segments.py`, which allows you to input a document as a txt file and view the resulting multi-token sequences (optionally in html format with the `--output_html` flag). 
+allowing you to segment any paragraph of text into high-scoring token sequences.
+```
+segments from highest to lowest score:
+'dramatic'       0.5815845847818102
+'twists'         0.5553912909024803
+'low bass'       0.41476866118921824
+'cuss'   0.3979072428604316
+'fifth'          0.3842911866668146
+'using'          0.3568337553491195
+...
+'ive'    -0.07994025301498671
+'s'      -0.14006704260206485
+'ations'         -0.2306471753618856
+'itions'         -0.3348596893891435
+```
+Adding the `--output_html` flag will also save an HTML file in the style of the below example to the folder `./logs/html`, bolding all multi-token sequences and coloring them blue if they have a higher erasure score.
+
+<img width="700" alt="Monk example from website" src="https://github.com/sfeucht/footprints/assets/56804258/5ba3c7dd-da0b-4b2b-9a91-be86bdb0afb6">
+
+## "Reading Out" Vocabulary Examples
+To apply this segmentation algorithm to an entire dataset (as seen in Tables 3 through 6), run
+```
+python readout.py --model meta-llama/Meta-Llama-3-8B --dataset ../data/wikipedia_test_500.csv
+```
+which specifically replicates Appendix Table 6. You can use your own dataset csv, as long as it contains a 'text' column with the documents you want to analyze.  
 
 ## Loading Our Probes
 Checkpoints for each of the linear probes used in our paper are available at https://huggingface.co/sfeucht/footprints. To load a linear probe used in this paper, run the following code snippet:
@@ -51,7 +72,7 @@ probe.load_state_dict(torch.load(checkpoint_path))
 ```
 
 ## Training Your Own Probes
-Code used in this paper for training and testing linear probes can be found in `./scripts`. We have provided the probes used for the paper above. However, if you would still like to train your own linear probe on e.g. layer 12 to predict the previous two tokens, run
+We have provided the probes used for the paper above. However, if you would still like to train your own linear probes, we provide code for training and testing linear probes on Llama hidden states in `./scripts`. To train a probe on e.g. layer 12 to predict two tokens ago, run
 ```
 python train_probe.py --layer 12 --target_idx -2 
 ```
