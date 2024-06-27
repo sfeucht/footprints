@@ -19,10 +19,10 @@ GitPython==3.1.43
 h11==0.14.0
 huggingface-hub==0.23.4
 idna==3.7
-importlib_metadata==7.2.1
-Jinja2==3.1.4
+importlib-metadata==7.2.1
+jinja2==3.1.4
 langcodes==3.4.0
-language_data==1.2.0
+language-data==1.2.0
 marisa-trie==1.2.0
 markdown-it-py==3.0.0
 MarkupSafe==2.1.5
@@ -52,8 +52,8 @@ preshed==3.0.9
 protobuf==5.27.1
 psutil==6.0.0
 pydantic==2.7.4
-pydantic_core==2.18.4
-Pygments==2.18.0
+pydantic-core==2.18.4
+pygments==2.18.0
 python-dateutil==2.9.0.post0
 python-engineio==4.9.1
 python-socketio==5.11.3
@@ -85,7 +85,7 @@ tqdm==4.66.4
 transformers==4.41.2
 triton==2.3.1
 typer==0.12.3
-typing_extensions==4.12.2
+typing-extensions==4.12.2
 tzdata==2024.1
 urllib3==2.2.2
 wandb==0.17.3

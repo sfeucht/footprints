@@ -46,7 +46,7 @@ def main(args):
     # max_seq_len from below sources is 2048, but changing to 512 for memory/speed 
     # https://github.com/meta-llama/llama/blob/main/llama/model.py#L31
     # https://github.com/meta-llama/llama3/blob/bf8d18cd087a4a0b3f61075b7de0b86cf6c70697/llama/model.py#L32
-    WINDOW_SIZE = 512 
+    WINDOW_SIZE = args.window_size 
 
     for param in model.parameters():
         param.requires_grad = False 
@@ -141,7 +141,8 @@ if __name__ == '__main__':
     parser.add_argument('--wandb_proj', type=str, default='footprints')
     parser.add_argument('--accumulate', type=int, default=30)
     parser.add_argument('--clip_threshold', type=float, default=0.1)
-
+    
+    parser.add_argument('--window_size', type=int, default=512)
     parser.add_argument('--num_workers', type=int, default=12)
     parser.add_argument('--criterion', type=str, choices=['mse', 'ce'], default='ce')
 

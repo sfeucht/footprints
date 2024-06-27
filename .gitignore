@@ -1,4 +1,4 @@
-fenv
+env
 scripts/__pycache__
 scripts/wandb
 checkpoints

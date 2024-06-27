@@ -1,5 +1,6 @@
 '''
 Load a probe checkpoint from `train_probe.py and get test results on it for another dataset.
+If you're loading a llama 3 checkpoint, make sure to specify --model meta-llama/Meta-Llama-3-8B
 '''
 import os
 import csv
@@ -141,7 +142,7 @@ def main(args):
     MODEL_NAME = args.model.split('/')[-1]
     
     # window size is actually 2048 but I choose 512 for brevity
-    WINDOW_SIZE = 512 
+    WINDOW_SIZE = args.window_size 
     
     for p in model.parameters():
         p.requires_grad = False
@@ -239,6 +240,7 @@ if __name__ == '__main__':
     parser.add_argument('--criterion', type=str, choices=['mse', 'ce'], default='ce')
     parser.add_argument('--cuda', type=int, default=0)
     parser.add_argument('--num_workers', type=int, default=12)
+    parser.add_argument('--window_size', type=int, default=512)
 
     # what dataset to test on 
     parser.add_argument('--test_data', type=str, 
