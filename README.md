@@ -1,5 +1,9 @@
 # Token Erasure as a Footprint of Implicit Vocabulary Items in LLMs
-How do LLMs process multi-token words, common phrases, and named entities? We discover a pattern of token erasure that we hypothesize to be a 'footprint' of how LLMs process unnatural tokenization. Read about our paper here: https://footprints.baulab.info
+How do LLMs process multi-token words, common phrases, and named entities? We discover a pattern of token erasure that we hypothesize to be a 'footprint' of how LLMs process unnatural tokenization. 
+
+Read more about our paper here: <br>
+🌐 https://footprints.baulab.info <br>
+📄 https://arxiv.org/abs/2406.20086
 
 <img src="https://github.com/sfeucht/footprints/assets/56804258/78d7d86b-81e7-4818-8521-0c05e05934f2" width="500" />
 
