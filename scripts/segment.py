@@ -1,5 +1,5 @@
 '''
-Does the same thing as the gradio demo, except in script form.
+Segment one document into highest-scoring token subsequences.
 '''
 import os
 import argparse
