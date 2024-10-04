@@ -110,7 +110,7 @@ def main(args):
         batches_seen = train_epoch(epoch, linear_probe, train_loader, criterion, optimizer, warmup_scheduler, args.accumulate, args.clip_threshold, batches_seen, device)
 
         # log validation loss at the end of each epoch
-        val_loss, val_acc, val_topk_acc, val_entity_ng_acc, val_other_acc = test(linear_probe, val_loader, criterion, device, model, tokenizer, args.target_idx, return_results=False)
+        val_loss, val_acc, val_topk_acc, val_entity_ng_acc, val_other_acc = test(linear_probe, val_loader, criterion, device, tokenizer, args.target_idx, return_results=False)
         wandb.log({"val_loss": val_loss, "val_acc": val_acc, "val_topk_acc": val_topk_acc, "val_entity_ng_acc": val_entity_ng_acc, "val_other_acc":val_other_acc})
 
         if warmup_scheduler is not None:
@@ -121,7 +121,7 @@ def main(args):
     
     # Get final testing accuracy and prediction results
     torch.save(linear_probe.state_dict(), f"{checkpoint_dir}/final.ckpt") 
-    test_loss, test_acc, test_topk_acc, test_entity_ng_acc, test_other_acc, test_results = test(linear_probe, test_loader, criterion, device, model, tokenizer, args.target_idx, return_results=True)
+    test_loss, test_acc, test_topk_acc, test_entity_ng_acc, test_other_acc, test_results = test(linear_probe, test_loader, criterion, device, tokenizer, args.target_idx, return_results=True)
     test_results.to_csv(log_dir + f"/{datasetname(args.test_data)}_results.csv", quoting=csv.QUOTE_ALL, encoding='utf-8')
     
     print('Test Loss: {:10.4f}  Accuracy: {:3.4f}%\n'.format(test_loss, test_acc))
