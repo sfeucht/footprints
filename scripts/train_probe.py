@@ -39,7 +39,7 @@ def main(args):
     tokenizer = model.tokenizer 
     tokenizer.add_special_tokens({'pad_token':'<s>'})
 
-    VOCAB_SIZE = model.vocab_size
+    VOCAB_SIZE = model.config.vocab_size
     MODEL_SIZE = model.config.hidden_size
     MODEL_NAME = args.model.split('/')[-1]
 
@@ -156,7 +156,7 @@ if __name__ == '__main__':
                         help='which layer to train the probe at, from -1...32 where -1 is embedding layer and 32 is output pre-softmax.')
     parser.add_argument('--target_idx', type=int, required=True,
                         help='which token the probe should predict from current hidden state (e.g. 0 for current token, -1 for prev)')
-    parser.add_argument('--model', type=str, choices=['meta-llama/Llama-2-7b-hf', 'meta-llama/Meta-Llama-3-8B'], default='meta-llama/Llama-2-7b-hf')
+    parser.add_argument('--model', type=str, choices=['meta-llama/Llama-2-7b-hf', 'meta-llama/Meta-Llama-3-8B', 'EleutherAI/pythia-6.9b'], default='meta-llama/Llama-2-7b-hf')
 
 
     args = parser.parse_args()

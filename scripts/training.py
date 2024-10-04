@@ -263,12 +263,20 @@ class DocCollate(object):
         attention_mask = tokenized['attention_mask']
 
         with self.model.trace(tokenized):
-            if self.layer == -1:
-                states = self.model.model.embed_tokens.output.save()
-            elif self.layer == 32:
-                states = self.model.model.norm.output.save()
-            else:
-                states = self.model.model.layers[self.layer].output[0].save()
+            if 'llama' in self.model.config._name_or_path.lower(): 
+                if self.layer == -1:
+                    states = self.model.model.embed_tokens.output.save()
+                elif self.layer == 32:
+                    states = self.model.model.norm.output.save()
+                else:
+                    states = self.model.model.layers[self.layer].output[0].save()
+            else: # pythia  
+                if self.layer == -1:
+                    states = self.model.gpt_neox.embed_in.output.save()
+                elif self.layer == 32:
+                    states = self.model.gpt_neox.final_layer_norm.output.save()
+                else:
+                    states = self.model.gpt_neox.layers[self.layer].output[0].save()
 
         # then loop through the entire thing to keep same logic for embs, tokens and doc_idxs 
         source_hss = []
